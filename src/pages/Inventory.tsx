@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,85 +13,46 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PencilSimple, Trash, CaretDown } from "@phosphor-icons/react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DynamicFormModal, type EntityType } from "@/components/DynamicFormModal";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-type InventoryStatus = "Còn hàng" | "Sắp hết hàng" | "Hết hàng";
+type InventoryStatus =
+  | "Còn hàng"
+  | "Sắp hết"
+  | "Hết hàng"
+  | "Ngừng kinh doanh";
 
 type InventoryBookRow = {
-  id: string;
+  id: string; // Book ID (MaDauSach / books.id)
   title: string;
   authors: string;
   totalQuantity: number;
   status: InventoryStatus;
   coverUrl: string;
-  // Raw data để phục vụ Edit
-  matl: number;
-  manxb: number;
-  namxb: number;
-  giabia: number;
-  mota: string;
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function computeStatus(quantity: number): InventoryStatus {
-  if (quantity > 10) return "Còn hàng";
-  if (quantity > 0) return "Sắp hết hàng";
-  return "Hết hàng";
-}
 
 function getInventoryBadge(status: InventoryStatus) {
   switch (status) {
     case "Còn hàng":
       return "bg-emerald-100 text-emerald-700 border-emerald-200";
-    case "Sắp hết hàng":
+    case "Sắp hết":
       return "bg-amber-100 text-amber-700 border-amber-200";
     case "Hết hàng":
       return "bg-red-100 text-red-700 border-red-200";
+    case "Ngừng kinh doanh":
+      return "bg-slate-100 text-slate-700 border-slate-200";
   }
 }
 
-function mapBookRow(b: any): InventoryBookRow {
-  const qty = b.tongsoluong || 0;
-  return {
-    id: b.mads || "",
-    title: b.tensach || "",
-    authors: b.mota || "",
-    totalQuantity: qty,
-    status: computeStatus(qty),
-    coverUrl: b.anhbia || "https://placehold.co/72x96/png?text=Cover",
-    matl: b.matl || 0,
-    manxb: b.manxb || 0,
-    namxb: b.namxb || 0,
-    giabia: b.giabia || 0,
-    mota: b.mota || "",
-  };
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
 export function Inventory() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | InventoryStatus>("all");
   const [books, setBooks] = useState<InventoryBookRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
-
-  // ── Add Book Dialog ──
   const [open, setOpen] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
   const [form, setForm] = useState({
@@ -108,56 +69,42 @@ export function Inventory() {
     previewUrl: "",
   });
 
-  // ── Combobox state ──
+  // State cho combobox
   const [categories, setCategories] = useState<{ matl: number; tentl: string }[]>([]);
   const [publishers, setPublishers] = useState<{ manxb: number; tennxb: string }[]>([]);
   const [authors, setAuthors] = useState<{ matg: number; tentg: string }[]>([]);
   const [selectedAuthor, setSelectedAuthor] = useState<string>("");
 
-  // ── DynamicFormModal (thay thế window.prompt) ──
+  // State cho DynamicFormModal (thay thế window.prompt)
   const [addEntityOpen, setAddEntityOpen] = useState(false);
   const [addEntityType, setAddEntityType] = useState<EntityType>("the_loai");
 
-  // ── Delete state ──
-  const [deleteTarget, setDeleteTarget] = useState<InventoryBookRow | null>(null);
-  const [deleteLoading, setDeleteLoading] = useState(false);
-
-  // ── Edit state ──
-  const [editOpen, setEditOpen] = useState(false);
-  const [editLoading, setEditLoading] = useState(false);
-  const [editBook, setEditBook] = useState<InventoryBookRow | null>(null);
-  const [editForm, setEditForm] = useState({
-    tensach: "",
-    tongsoluong: 0,
-    giabia: 0,
-    nhaxuatban: "",
-    namxb: "",
-    theloai: "",
-    mota: "",
-    anhbia: "",
-    file: undefined as File | undefined,
-    previewUrl: "",
-  });
-
-  // ── Fetch books ──
-  const fetchBooks = useCallback(async () => {
-    setIsLoading(true);
-    const { data, error } = await supabase.from("dau_sach").select("*");
-    if (error) {
-      setBooks([]);
-    } else {
-      setBooks((data || []).map(mapBookRow));
+  useEffect(() => {
+    async function fetchBooks() {
+      setIsLoading(true);
+      const { data, error } = await supabase.from("dau_sach").select("*");
+      if (error) {
+        setBooks([]);
+      } else {
+        setBooks(
+          (data || []).map((b: any) => ({
+            id: b.mads || "",
+            title: b.tensach || "",
+            authors: b.mota || "", // Không có cột tác giả, tạm dùng mô tả hoặc để trống
+            totalQuantity: b.tongsoluong || 0,
+            status: "Còn hàng", // Nếu có cột trạng thái thì map, còn không mặc định
+            coverUrl: b.anhbia || "https://placehold.co/72x96/png?text=Cover",
+          }))
+        );
+      }
+      setIsLoading(false);
     }
-    setIsLoading(false);
+    fetchBooks();
   }, []);
 
+  // Fetch dữ liệu khi mở modal
   useEffect(() => {
-    fetchBooks();
-  }, [fetchBooks]);
-
-  // ── Fetch combobox data khi mở modal Add hoặc Edit ──
-  useEffect(() => {
-    if (!open && !editOpen) return;
+    if (!open) return;
     (async () => {
       const [cat, pub, aut] = await Promise.all([
         supabase.from("the_loai").select("matl, tentl"),
@@ -168,9 +115,8 @@ export function Inventory() {
       setPublishers(pub.data || []);
       setAuthors(aut.data || []);
     })();
-  }, [open, editOpen]);
+  }, [open]);
 
-  // ── Filter logic ──
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return books.filter((b) => {
@@ -184,14 +130,6 @@ export function Inventory() {
     });
   }, [books, search, statusFilter]);
 
-  // ── Đếm số lượng theo trạng thái cho Tabs ──
-  const statusCounts = useMemo(() => {
-    const counts = { all: books.length, "Còn hàng": 0, "Sắp hết hàng": 0, "Hết hàng": 0 };
-    books.forEach((b) => { counts[b.status]++; });
-    return counts;
-  }, [books]);
-
-  // ── File change handler ──
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) {
@@ -199,19 +137,13 @@ export function Inventory() {
     }
   }
 
-  function handleEditFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      setEditForm(f => ({ ...f, file, previewUrl: URL.createObjectURL(file) }));
-    }
-  }
-
-  // ── DynamicFormModal handlers ──
+  // Mở modal thêm mới thể loại, NXB, tác giả (thay thế window.prompt)
   function handleAddNew(type: EntityType) {
     setAddEntityType(type);
     setAddEntityOpen(true);
   }
 
+  // Callback khi thêm mới thành công từ DynamicFormModal
   function handleAddEntitySuccess(data: Record<string, any>) {
     if (addEntityType === "the_loai") {
       setCategories(prev => [...prev, data as any]);
@@ -228,23 +160,6 @@ export function Inventory() {
     }
   }
 
-  // Cũng cần handler cho Edit modal khi thêm mới entity
-  function handleAddEntitySuccessForEdit(data: Record<string, any>) {
-    if (addEntityType === "the_loai") {
-      setCategories(prev => [...prev, data as any]);
-      setEditForm(f => ({ ...f, theloai: data.matl.toString() }));
-      toast({ title: "Đã thêm thể loại mới!" });
-    } else if (addEntityType === "nha_xuat_ban") {
-      setPublishers(prev => [...prev, data as any]);
-      setEditForm(f => ({ ...f, nhaxuatban: data.manxb.toString() }));
-      toast({ title: "Đã thêm nhà xuất bản mới!" });
-    } else if (addEntityType === "tac_gia") {
-      setAuthors(prev => [...prev, data as any]);
-      toast({ title: "Đã thêm tác giả mới!" });
-    }
-  }
-
-  // ── ADD BOOK ──
   async function handleAddBook(e: React.FormEvent) {
     e.preventDefault();
     setAddLoading(true);
@@ -257,6 +172,7 @@ export function Inventory() {
         setAddLoading(false);
         return;
       }
+      // Lấy public URL
       const { data: urlData } = supabase.storage.from("book_covers").getPublicUrl(fileName);
       coverUrl = urlData?.publicUrl || "";
     }
@@ -267,16 +183,18 @@ export function Inventory() {
       giabia: Number(form.giabia),
       tongsoluong: Number(form.tongsoluong),
       mota: form.mota,
-      matl: Number(form.theloai),
-      manxb: Number(form.nhaxuatban),
+      matl: Number(form.theloai), // map input thể loại vào matl
+      manxb: Number(form.nhaxuatban), // map input nhà xuất bản vào manxb
       anhbia: coverUrl,
     };
+    // Insert vào dau_sach
     const { data: bookData, error: insertError } = await supabase.from("dau_sach").insert([payload]).select();
     if (insertError || !bookData || !bookData[0]) {
       toast({ variant: "destructive", title: "Thêm sách thất bại", description: insertError?.message });
       setAddLoading(false);
       return;
     }
+    // Insert vào chi_tiet_tac_gia
     if (selectedAuthor) {
       await supabase.from("chi_tiet_tac_gia").insert({ mads: bookData[0].mads, matg: Number(selectedAuthor) });
     }
@@ -296,116 +214,27 @@ export function Inventory() {
       previewUrl: "",
     });
     setSelectedAuthor("");
-    await fetchBooks();
+    // Refetch data
+    setIsLoading(true);
+    const { data, error: fetchError } = await supabase.from("dau_sach").select("*");
+    if (!fetchError) {
+      setBooks(
+        (data || []).map((b: any) => ({
+          id: b.mads || "",
+          title: b.tensach || "",
+          authors: b.mota || "",
+          totalQuantity: b.tongsoluong || 0,
+          status: "Còn hàng",
+          coverUrl: b.anhbia || "https://placehold.co/72x96/png?text=Cover",
+        }))
+      );
+    }
+    setIsLoading(false);
     setAddLoading(false);
   }
 
-  // ── DELETE BOOK ──
-  async function handleDeleteBook() {
-    if (!deleteTarget) return;
-    setDeleteLoading(true);
-    // Xóa chi_tiet_tac_gia trước (tránh lỗi FK)
-    await supabase.from("chi_tiet_tac_gia").delete().eq("mads", deleteTarget.id);
-    const { error } = await supabase.from("dau_sach").delete().eq("mads", deleteTarget.id);
-    setDeleteLoading(false);
-    if (error) {
-      toast({ variant: "destructive", title: "Xóa thất bại", description: error.message });
-    } else {
-      toast({ title: "Đã xóa sách!", description: `Sách '${deleteTarget.title}' đã được xóa.` });
-      // Cập nhật state trực tiếp (không cần F5)
-      setBooks(prev => prev.filter(b => b.id !== deleteTarget.id));
-    }
-    setDeleteTarget(null);
-  }
-
-  // ── OPEN EDIT ──
-  function handleOpenEdit(book: InventoryBookRow) {
-    setEditBook(book);
-    setEditForm({
-      tensach: book.title,
-      tongsoluong: book.totalQuantity,
-      giabia: book.giabia,
-      nhaxuatban: book.manxb ? book.manxb.toString() : "",
-      namxb: book.namxb ? book.namxb.toString() : "",
-      theloai: book.matl ? book.matl.toString() : "",
-      mota: book.mota,
-      anhbia: book.coverUrl,
-      file: undefined,
-      previewUrl: "",
-    });
-    setEditOpen(true);
-  }
-
-  // ── SAVE EDIT ──
-  async function handleSaveEdit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editBook) return;
-    setEditLoading(true);
-
-    let coverUrl = editForm.anhbia;
-    if (editForm.file) {
-      const fileName = `${editBook.id}_${Date.now()}`;
-      const { error } = await supabase.storage.from("book_covers").upload(fileName, editForm.file);
-      if (error) {
-        toast({ variant: "destructive", title: "Lỗi upload ảnh bìa", description: error.message });
-        setEditLoading(false);
-        return;
-      }
-      const { data: urlData } = supabase.storage.from("book_covers").getPublicUrl(fileName);
-      coverUrl = urlData?.publicUrl || "";
-    }
-
-    const payload = {
-      tensach: editForm.tensach,
-      namxb: Number(editForm.namxb),
-      giabia: Number(editForm.giabia),
-      tongsoluong: Number(editForm.tongsoluong),
-      mota: editForm.mota,
-      matl: Number(editForm.theloai),
-      manxb: Number(editForm.nhaxuatban),
-      anhbia: coverUrl,
-    };
-
-    const { error: updateError } = await supabase.from("dau_sach").update(payload).eq("mads", editBook.id);
-    setEditLoading(false);
-
-    if (updateError) {
-      toast({ variant: "destructive", title: "Cập nhật thất bại", description: updateError.message });
-      return;
-    }
-
-    toast({ title: "Cập nhật thành công!", description: `Sách '${editForm.tensach}' đã được cập nhật.` });
-    setEditOpen(false);
-    setEditBook(null);
-
-    // Cập nhật state trực tiếp
-    setBooks(prev =>
-      prev.map(b => {
-        if (b.id !== editBook.id) return b;
-        const qty = Number(editForm.tongsoluong);
-        return {
-          ...b,
-          title: editForm.tensach,
-          totalQuantity: qty,
-          status: computeStatus(qty),
-          giabia: Number(editForm.giabia),
-          matl: Number(editForm.theloai),
-          manxb: Number(editForm.nhaxuatban),
-          namxb: Number(editForm.namxb),
-          mota: editForm.mota,
-          coverUrl: coverUrl,
-          authors: editForm.mota,
-        };
-      })
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // JSX
-  // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-6">
-      {/* ── Header + Nút Thêm ── */}
       <div className="space-y-1 flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 lg:text-3xl">
@@ -417,7 +246,7 @@ export function Inventory() {
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button className="mt-4 sm:mt-0 h-10 px-6 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm cursor-pointer transition-colors duration-200">
+            <Button className="mt-4 sm:mt-0 h-10 px-6 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-sm">
               + Thêm Sách Mới
             </Button>
           </DialogTrigger>
@@ -516,54 +345,49 @@ export function Inventory() {
         </Dialog>
       </div>
 
-      {/* ── Card chứa bảng ── */}
       <Card className="rounded-2xl border-0 bg-white shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-base text-slate-900">
               Danh sách kho sách
             </CardTitle>
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm theo tên sách, tác giả hoặc mã..."
-              className="w-full sm:w-[320px]"
-            />
-          </div>
 
-          {/* ── Tabs bộ lọc trạng thái ── */}
-          <Tabs
-            value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as "all" | InventoryStatus)}
-            className="mt-3"
-          >
-            <TabsList variant="line">
-              <TabsTrigger value="all">
-                Tất cả
-                <Badge variant="outline" className="ml-1.5 text-[10px] px-1.5 py-0 font-medium">
-                  {statusCounts.all}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="Còn hàng">
-                Còn hàng
-                <Badge variant="outline" className="ml-1.5 text-[10px] px-1.5 py-0 font-medium bg-emerald-50 text-emerald-700 border-emerald-200">
-                  {statusCounts["Còn hàng"]}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="Sắp hết hàng">
-                Sắp hết hàng
-                <Badge variant="outline" className="ml-1.5 text-[10px] px-1.5 py-0 font-medium bg-amber-50 text-amber-700 border-amber-200">
-                  {statusCounts["Sắp hết hàng"]}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="Hết hàng">
-                Hết hàng
-                <Badge variant="outline" className="ml-1.5 text-[10px] px-1.5 py-0 font-medium bg-red-50 text-red-700 border-red-200">
-                  {statusCounts["Hết hàng"]}
-                </Badge>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Tìm theo tên sách, tác giả hoặc mã..."
+                className="w-full sm:w-[320px]"
+              />
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={statusFilter === "all" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setStatusFilter("all")}
+                >
+                  Tất cả
+                </Button>
+                <Button
+                  type="button"
+                  variant={statusFilter === "Còn hàng" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setStatusFilter("Còn hàng")}
+                >
+                  Còn hàng
+                </Button>
+                <Button
+                  type="button"
+                  variant={statusFilter === "Sắp hết" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setStatusFilter("Sắp hết")}
+                >
+                  Sắp hết
+                </Button>
+              </div>
+            </div>
+          </div>
         </CardHeader>
 
         <CardContent className="pt-0">
@@ -606,12 +430,9 @@ export function Inventory() {
                 ))
               ) : (
                 filtered.map((b) => (
-                  <TableRow
-                    key={b.id}
-                    className="transition-all duration-300 ease-in-out hover:bg-slate-50/80 animate-in fade-in slide-in-from-bottom-2"
-                  >
+                  <TableRow key={b.id}>
                     <TableCell>
-                      <div className="h-16 w-12 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition-transform duration-200 hover:scale-105">
+                      <div className="h-16 w-12 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
                         <img
                           src={b.coverUrl}
                           alt={`Bìa sách ${b.title}`}
@@ -633,32 +454,28 @@ export function Inventory() {
                     <TableCell>
                       <Badge
                         variant="outline"
-                        className={`${getInventoryBadge(b.status)} transition-colors duration-200`}
+                        className={getInventoryBadge(b.status)}
                       >
                         {b.status}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        {/* ── Nút Sửa ── */}
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="h-9 w-9 cursor-pointer transition-colors duration-200 hover:bg-amber-50 hover:text-amber-600"
+                          className="h-9 w-9"
                           aria-label={`Sửa ${b.title}`}
-                          onClick={() => handleOpenEdit(b)}
                         >
                           <PencilSimple className="h-4 w-4" />
                         </Button>
-                        {/* ── Nút Xóa ── */}
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="h-9 w-9 text-red-600 hover:text-red-600 cursor-pointer transition-colors duration-200 hover:bg-red-50"
+                          className="h-9 w-9 text-red-600 hover:text-red-600"
                           aria-label={`Xóa ${b.title}`}
-                          onClick={() => setDeleteTarget(b)}
                         >
                           <Trash className="h-4 w-4" />
                         </Button>
@@ -683,118 +500,12 @@ export function Inventory() {
           </Table>
         </CardContent>
       </Card>
-
-      {/* ═══════════════════════════════════════════════════════════════════════
-          AlertDialog xác nhận XÓA
-          ═══════════════════════════════════════════════════════════════════════ */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Xác nhận xóa sách</AlertDialogTitle>
-            <AlertDialogDescription>
-              Bạn có chắc chắn muốn xóa sách <strong>"{deleteTarget?.title}"</strong>? Hành động này không thể hoàn tác.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteLoading}>Huỷ</AlertDialogCancel>
-            <AlertDialogAction
-              variant="default"
-              className="bg-red-600 hover:bg-red-700 text-white"
-              onClick={handleDeleteBook}
-              disabled={deleteLoading}
-            >
-              {deleteLoading ? "Đang xóa..." : "Xóa"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ═══════════════════════════════════════════════════════════════════════
-          Dialog SỬA sách
-          ═══════════════════════════════════════════════════════════════════════ */}
-      <Dialog open={editOpen} onOpenChange={(v) => { setEditOpen(v); if (!v) setEditBook(null); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Chỉnh sửa sách — {editBook?.id}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSaveEdit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-tensach">Tên sách</label>
-              <Input id="edit-tensach" value={editForm.tensach} onChange={e => setEditForm(f => ({ ...f, tensach: e.target.value }))} required autoFocus />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-nhaxuatban">Nhà xuất bản</label>
-              <Select value={editForm.nhaxuatban} onValueChange={v => setEditForm(f => ({ ...f, nhaxuatban: v }))}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Chọn nhà xuất bản" />
-                  <CaretDown className="ml-2 h-4 w-4" />
-                </SelectTrigger>
-                <SelectContent>
-                  {publishers.map(nxb => (
-                    <SelectItem key={nxb.manxb} value={nxb.manxb.toString()}>{nxb.tennxb}</SelectItem>
-                  ))}
-                  <div className="border-t my-1" />
-                  <Button type="button" variant="ghost" className="w-full justify-start px-2 py-1 text-left text-amber-600" onClick={() => handleAddNew("nha_xuat_ban")}>+ Thêm nhà xuất bản mới</Button>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-namxb">Năm xuất bản</label>
-              <Input id="edit-namxb" type="number" value={editForm.namxb} onChange={e => setEditForm(f => ({ ...f, namxb: e.target.value }))} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-theloai">Thể loại</label>
-              <Select value={editForm.theloai} onValueChange={v => setEditForm(f => ({ ...f, theloai: v }))}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Chọn thể loại" />
-                  <CaretDown className="ml-2 h-4 w-4" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map(tl => (
-                    <SelectItem key={tl.matl} value={tl.matl.toString()}>{tl.tentl}</SelectItem>
-                  ))}
-                  <div className="border-t my-1" />
-                  <Button type="button" variant="ghost" className="w-full justify-start px-2 py-1 text-left text-amber-600" onClick={() => handleAddNew("the_loai")}>+ Thêm thể loại mới</Button>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-tongsoluong">Số lượng tồn kho</label>
-              <Input id="edit-tongsoluong" type="number" min={0} value={editForm.tongsoluong} onChange={e => setEditForm(f => ({ ...f, tongsoluong: Number(e.target.value) }))} required />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-mota">Giới thiệu / Mô tả</label>
-              <Textarea id="edit-mota" value={editForm.mota} onChange={e => setEditForm(f => ({ ...f, mota: e.target.value }))} rows={4} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-giabia">Giá bìa</label>
-              <Input id="edit-giabia" type="number" min={0} value={editForm.giabia} onChange={e => setEditForm(f => ({ ...f, giabia: Number(e.target.value) }))} required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1" htmlFor="edit-anhbia">Ảnh bìa</label>
-              <Input id="edit-anhbia" type="file" accept="image/*" onChange={handleEditFileChange} />
-              {(editForm.previewUrl || editForm.anhbia) && (
-                <div className="mt-2 h-16 w-12 rounded border border-slate-200 bg-slate-100 overflow-hidden">
-                  <img src={editForm.previewUrl || editForm.anhbia} alt="Preview" className="h-full w-full object-cover" />
-                </div>
-              )}
-            </div>
-            <DialogFooter className="sm:col-span-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => { setEditOpen(false); setEditBook(null); }}>Huỷ</Button>
-              <Button type="submit" className="bg-amber-500 hover:bg-amber-600 text-white" disabled={editLoading}>
-                {editLoading ? "Đang lưu..." : "Lưu thay đổi"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Modal thêm mới thể loại / NXB / tác giả ── */}
+      {/* Modal thêm mới thể loại / NXB / tác giả */}
       <DynamicFormModal
         open={addEntityOpen}
         onOpenChange={setAddEntityOpen}
         entityType={addEntityType}
-        onSuccess={editOpen ? handleAddEntitySuccessForEdit : handleAddEntitySuccess}
+        onSuccess={handleAddEntitySuccess}
       />
     </div>
   );
